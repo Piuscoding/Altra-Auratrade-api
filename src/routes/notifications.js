@@ -8,61 +8,18 @@ import {
   unreadCount,
   notifyUser,
 } from "../services/notificationService.js"
-import NotificationPreference from "../models/NotificationPreference.js"
 import { listAuditLogs, writeAudit } from "../services/auditService.js"
 
 const router = Router()
 router.use(protect, loadUser)
-
-router.get("/", async (req, res) => {
-  try {
-    const unreadOnly = req.query.unread === "1"
-    const notifications = await listNotifications(req.user._id, {
-      unreadOnly,
-      limit: Number(req.query.limit) || 50,
-    })
-    const unread = await unreadCount(req.user._id)
-    res.json({ notifications, unread })
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ message: "Failed to list notifications" })
-  }
-})
-
-router.get("/unread-count", async (req, res) => {
-  try {
-    const unread = await unreadCount(req.user._id)
-    res.json({ unread })
-  } catch (err) {
-    res.status(500).json({ message: "Failed" })
-  }
-})
-
-router.post("/:id/read", async (req, res) => {
-  try {
-    const n = await markRead(req.user._id, req.params.id)
-    if (!n) return res.status(404).json({ message: "Not found" })
-    res.json({ notification: n })
-  } catch (err) {
-    res.status(500).json({ message: "Failed" })
-  }
-})
-
-router.post("/read-all", async (req, res) => {
-  try {
-    await markAllRead(req.user._id)
-    res.json({ message: "All marked read" })
-  } catch (err) {
-    res.status(500).json({ message: "Failed" })
-  }
-})
 
 router.get("/preferences", async (req, res) => {
   try {
     const prefs = await getOrCreatePrefs(req.user._id)
     res.json({ preferences: prefs })
   } catch (err) {
-    res.status(500).json({ message: "Failed to load preferences" })
+    console.error("[notifications/preferences]", err)
+    res.status(500).json({ message: "Failed to load preferences", error: err.message })
   }
 })
 
@@ -79,7 +36,8 @@ router.put("/preferences", async (req, res) => {
       prefs.discordWebhookUrl = String(body.discordWebhookUrl)
     }
     if (body.events && typeof body.events === "object") {
-      prefs.events = { ...(prefs.events?.toObject?.() || prefs.events || {}), ...body.events }
+      const prev = prefs.events?.toObject?.() || prefs.events || {}
+      prefs.events = { ...prev, ...body.events }
     }
     await prefs.save()
     await writeAudit({
@@ -91,8 +49,26 @@ router.put("/preferences", async (req, res) => {
     })
     res.json({ preferences: prefs })
   } catch (err) {
-    console.error(err)
-    res.status(500).json({ message: "Failed to save preferences" })
+    console.error("[notifications/preferences PUT]", err)
+    res.status(500).json({ message: "Failed to save preferences", error: err.message })
+  }
+})
+
+router.get("/unread-count", async (req, res) => {
+  try {
+    const unread = await unreadCount(req.user._id)
+    res.json({ unread })
+  } catch (err) {
+    res.status(500).json({ message: "Failed" })
+  }
+})
+
+router.post("/read-all", async (req, res) => {
+  try {
+    await markAllRead(req.user._id)
+    res.json({ message: "All marked read" })
+  } catch (err) {
+    res.status(500).json({ message: "Failed" })
   }
 })
 
@@ -115,17 +91,20 @@ router.post("/test", async (req, res) => {
 router.get("/audit", async (req, res) => {
   try {
     const isAdmin = ["admin", "owner"].includes(req.user.role)
+    if (isAdmin && req.query.userId) {
+      const logs = await listAuditLogs({
+        userId: req.query.userId,
+        action: req.query.action,
+        limit: Number(req.query.limit) || 100,
+        admin: true,
+      })
+      return res.json({ logs })
+    }
     const logs = await listAuditLogs({
-      userId: isAdmin && req.query.userId ? req.query.userId : req.user._id,
+      userId: req.user._id,
       action: req.query.action,
       limit: Number(req.query.limit) || 100,
-      admin: isAdmin && Boolean(req.query.userId),
     })
-    // Non-admins only see their own
-    if (!isAdmin) {
-      const own = await listAuditLogs({ userId: req.user._id, limit: Number(req.query.limit) || 100 })
-      return res.json({ logs: own })
-    }
     res.json({ logs })
   } catch (err) {
     console.error(err)
@@ -143,6 +122,34 @@ router.get("/audit/all", restrictTo("admin", "owner"), async (req, res) => {
     res.json({ logs })
   } catch (err) {
     res.status(500).json({ message: "Failed to load audit logs" })
+  }
+})
+
+router.get("/", async (req, res) => {
+  try {
+    const unreadOnly = req.query.unread === "1"
+    const notifications = await listNotifications(req.user._id, {
+      unreadOnly,
+      limit: Number(req.query.limit) || 50,
+    })
+    const unread = await unreadCount(req.user._id)
+    res.json({ notifications, unread })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ message: "Failed to list notifications" })
+  }
+})
+
+router.post("/:id/read", async (req, res) => {
+  try {
+    if (req.params.id === "read-all" || req.params.id === "preferences") {
+      return res.status(400).json({ message: "Invalid notification id" })
+    }
+    const n = await markRead(req.user._id, req.params.id)
+    if (!n) return res.status(404).json({ message: "Not found" })
+    res.json({ notification: n })
+  } catch (err) {
+    res.status(500).json({ message: "Failed" })
   }
 })
 

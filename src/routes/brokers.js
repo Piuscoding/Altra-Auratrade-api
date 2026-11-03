@@ -96,6 +96,16 @@ router.patch("/:id/settings", async (req, res) => {
   }
 })
 
+router.post("/:id/sync-orders", async (req, res) => {
+  try {
+    const { syncOpenTradesForAccount } = await import("../services/orderSyncService.js")
+    const result = await syncOpenTradesForAccount(req.user._id, req.params.id)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ message: err.message || "Order sync failed" })
+  }
+})
+
 router.post("/:id/sync", async (req, res) => {
   try {
     const result = await syncBalance(req.user._id, req.params.id)

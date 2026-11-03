@@ -17,6 +17,8 @@ const adminSettingsSchema = new mongoose.Schema(
       riskAdjustment: { type: Boolean, default: false },
       profitLock50: { type: Boolean, default: false },
       sessionConstraints: { type: Boolean, default: true },
+      preSignalValidation: { type: Boolean, default: false },
+      aiChartAssist: { type: Boolean, default: true },
     },
     freeModels: {
       type: [modelEntrySchema],
@@ -43,6 +45,42 @@ const adminSettingsSchema = new mongoose.Schema(
           description: "Excellent video understanding",
         },
       ],
+    },
+    /** Global default when user has no preference — free tier */
+    defaultFreeModelId: { type: String, default: "qwen/qwen3-vl-7b" },
+    /** Global default paid model when paid models enabled and user on paid path */
+    defaultPaidModelId: { type: String, default: "anthropic/claude-4-opus" },
+    marketDataProvider: {
+      type: String,
+      enum: ["twelvedata", "finnhub"],
+      default: "twelvedata",
+    },
+    preSignalValidation: {
+      mode: { type: String, enum: ["warn", "block"], default: "block" },
+      runQuickBacktest: { type: Boolean, default: true },
+      candleCount: { type: Number, default: 180 },
+      timeframe: { type: String, default: "H1" },
+      usePromotionGates: { type: Boolean, default: true },
+      minTrades: { type: Number, default: 10 },
+      minWinRate: { type: Number, default: 40 },
+      minExpectancy: { type: Number, default: 0 },
+      maxDrawdownPercent: { type: Number, default: 25 },
+    },
+    promotionGates: {
+      enabled: { type: Boolean, default: false },
+      minTrades: { type: Number, default: 20 },
+      minWinRate: { type: Number, default: 45 },
+      minExpectancy: { type: Number, default: 0 },
+      maxDrawdownPercent: { type: Number, default: 20 },
+      minProfitFactor: { type: Number, default: 1.1 },
+      minDesignatedRRHitRate: { type: Number, default: 40 },
+      minWalkForwardFoldPassRate: { type: Number, default: 50 },
+      minStabilityScore: { type: Number, default: 40 },
+    },
+    newsDataProvider: {
+      type: String,
+      enum: ["financecalendar", "jbnews", "finnhub", "fmp"],
+      default: "financecalendar",
     },
     modelSwitching: {
       freeModelsEnabled: { type: Boolean, default: true },

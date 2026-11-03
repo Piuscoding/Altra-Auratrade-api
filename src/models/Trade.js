@@ -54,6 +54,14 @@ const tradeSchema = new mongoose.Schema(
     },
     profitLockActivated: { type: Boolean, default: false },
     metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
+    outcome: {
+      type: String,
+      enum: ["win", "loss", "breakeven", "open", "cancelled", "skipped", null],
+      default: null,
+    },
+    journalNotes: { type: String, default: "" },
+    journalTags: { type: [String], default: [] },
+    journalReviewed: { type: Boolean, default: false },
   },
   { timestamps: true }
 )

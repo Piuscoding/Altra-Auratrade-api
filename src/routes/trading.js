@@ -10,11 +10,7 @@ import {
   runRiskAdjustment,
   updateMarkPrice,
 } from "../services/tradingEngine.js"
-import {
-  seedDemoNewsEvent,
-  clearDemoNewsEvents,
-  getUpcomingEvents,
-} from "../services/newsFilterEngine.js"
+import { getUpcomingEvents } from "../services/newsFilterEngine.js"
 
 const router = Router()
 router.use(protect, loadUser)
@@ -41,11 +37,32 @@ router.get("/signals", async (req, res) => {
 
 router.get("/trades", async (req, res) => {
   try {
-    const trades = await listTrades(req.user._id, { status: req.query.status })
+    const trades = await listTrades(req.user._id, {
+      status: req.query.status,
+      strategyId: req.query.strategyId,
+      accountType: req.query.accountType,
+      outcome: req.query.outcome,
+      from: req.query.from,
+      to: req.query.to,
+      limit: Number(req.query.limit) || 500,
+    })
     res.json({ trades })
   } catch (err) {
     console.error(err)
     res.status(500).json({ message: "Failed to list trades" })
+  }
+})
+
+router.post("/trades/:id/sync-status", async (req, res) => {
+  try {
+    const { syncTradeOrderStatus } = await import("../services/orderSyncService.js")
+    const result = await syncTradeOrderStatus(req.user._id, req.params.id)
+    if (!result.ok) {
+      return res.status(400).json({ message: result.error || "Sync failed" })
+    }
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ message: err.message || "Order status sync failed" })
   }
 })
 
@@ -102,18 +119,6 @@ router.post("/kill-switch", async (req, res) => {
 
 router.get("/news/upcoming", async (_req, res) => {
   res.json({ events: getUpcomingEvents(180) })
-})
-
-router.post("/news/demo-seed", async (req, res) => {
-  const name = req.body?.name || "FOMC"
-  const minutesFromNow = Number(req.body?.minutesFromNow) || 10
-  const event = seedDemoNewsEvent({ name, minutesFromNow, impact: "high" })
-  res.json({ event, message: "Demo high-impact event seeded for testing news filter" })
-})
-
-router.delete("/news/demo", async (_req, res) => {
-  clearDemoNewsEvents()
-  res.json({ message: "Demo news events cleared" })
 })
 
 export default router

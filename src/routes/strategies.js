@@ -417,4 +417,88 @@ router.post("/:id/submit-review", async (req, res) => {
   }
 })
 
+
+router.patch("/:id/metrics-targets", async (req, res) => {
+  try {
+    const Strategy = (await import("../models/Strategy.js")).default
+    const strategy = await Strategy.findOne({ _id: req.params.id, userId: req.user._id })
+    if (!strategy) return res.status(404).json({ message: "Strategy not found" })
+    const { designatedRR, targetWinRate, rrMode } = req.body || {}
+    if (designatedRR != null) {
+      const n = Number(designatedRR)
+      if (!(n > 0)) return res.status(400).json({ message: "designatedRR must be > 0" })
+      strategy.designatedRR = n
+      strategy.rules = { ...(strategy.rules || {}), minRR: n }
+    }
+    if (targetWinRate != null) {
+      const n = Number(targetWinRate)
+      if (n < 0 || n > 100) return res.status(400).json({ message: "targetWinRate 0-100" })
+      strategy.targetWinRate = n
+    }
+    if (rrMode && ["designated", "empirical"].includes(rrMode)) {
+      strategy.rrMode = rrMode
+    }
+    await strategy.save()
+    res.json({ strategy })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ message: err.message || "Failed to update metrics targets" })
+  }
+})
+
+router.post("/:id/recompute-demo-metrics", async (req, res) => {
+  try {
+    const { recomputeDemoMetrics } = await import("../services/strategyMetricsService.js")
+    const Strategy = (await import("../models/Strategy.js")).default
+    const owned = await Strategy.findOne({ _id: req.params.id, userId: req.user._id })
+    if (!owned) return res.status(404).json({ message: "Strategy not found" })
+    const strategy = await recomputeDemoMetrics(req.params.id)
+    res.json({ strategy })
+  } catch (err) {
+    res.status(500).json({ message: err.message || "Recompute failed" })
+  }
+})
+
+
+router.patch("/:id/auto-signal", async (req, res) => {
+  try {
+    const { setAutoSignal } = await import("../services/autoSignalService.js")
+    const { enqueueStrategyEvaluation } = await import("../workers/autoSignalWorker.js")
+    const strategy = await setAutoSignal(req.user._id, req.params.id, req.body || {})
+    if (strategy.autoSignal?.enabled) {
+      enqueueStrategyEvaluation(strategy._id).catch(() => {})
+    }
+    res.json({ strategy })
+  } catch (err) {
+    res.status(err.status || 500).json({ message: err.message || "Failed to update auto-signal" })
+  }
+})
+
+
+router.get("/:id/auto-signal/health", async (req, res) => {
+  try {
+    const { getAutoSignalHealth } = await import("../services/autoSignalService.js")
+    const health = await getAutoSignalHealth(req.user._id, req.params.id)
+    res.json({ health })
+  } catch (err) {
+    res.status(err.status || 500).json({ message: err.message || "Failed to load health" })
+  }
+})
+
+router.post("/:id/auto-signal/run", async (req, res) => {
+  try {
+    const Strategy = (await import("../models/Strategy.js")).default
+    const owned = await Strategy.findOne({ _id: req.params.id, userId: req.user._id })
+    if (!owned) return res.status(404).json({ message: "Strategy not found" })
+    if (!owned.autoSignal?.enabled) {
+      return res.status(400).json({ message: "Enable auto-signal first" })
+    }
+    const { evaluateStrategyAutoSignal } = await import("../services/autoSignalService.js")
+    const result = await evaluateStrategyAutoSignal(owned._id, { force: true })
+    res.json(result)
+  } catch (err) {
+    res.status(err.status || 500).json({ message: err.message || "Run failed" })
+  }
+})
+
 export default router

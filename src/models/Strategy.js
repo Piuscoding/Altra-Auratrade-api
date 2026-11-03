@@ -9,6 +9,28 @@ const strategyStepSchema = new mongoose.Schema({
   userCorrections: String,
 })
 
+const metricsBucketSchema = new mongoose.Schema(
+  {
+    winRate: { type: Number, default: 0 },
+    expectancy: { type: Number, default: 0 },
+    profitFactor: { type: Number, default: 0 },
+    maxDD: { type: Number, default: 0 },
+    trades: { type: Number, default: 0 },
+    wins: { type: Number, default: 0 },
+    losses: { type: Number, default: 0 },
+    /** Average realized R multiple on closed trades (risk units) */
+    avgRealizedRR: { type: Number, default: 0 },
+    /** Median realized R multiple */
+    medianRealizedRR: { type: Number, default: 0 },
+    /** % of wins that reached at least designated RR */
+    designatedRRHitRate: { type: Number, default: 0 },
+    /** Most common / high-probability RR band (rounded) */
+    highProbabilityRR: { type: Number, default: 0 },
+    lastUpdatedAt: { type: Date, default: null },
+  },
+  { _id: false }
+)
+
 const strategySchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -38,6 +60,19 @@ const strategySchema = new mongoose.Schema(
       images: [String],
       videoUrl: String,
     },
+    /** User/designated targets */
+    designatedRR: { type: Number, default: 2 },
+    targetWinRate: { type: Number, default: 50 },
+    /**
+     * Which RR auto-signal (future) / sizing helpers should prefer.
+     * designated = use designatedRR; empirical = use highProbabilityRR from best available data
+     */
+    rrMode: {
+      type: String,
+      enum: ["designated", "empirical"],
+      default: "designated",
+    },
+    /** Legacy flat performance (kept in sync with metrics.backtest for compatibility) */
     performance: {
       winRate: { type: Number, default: 0 },
       expectancy: { type: Number, default: 0 },
@@ -45,7 +80,31 @@ const strategySchema = new mongoose.Schema(
       maxDD: { type: Number, default: 0 },
       trades: { type: Number, default: 0 },
     },
+    metrics: {
+      backtest: { type: metricsBucketSchema, default: () => ({}) },
+      demo: { type: metricsBucketSchema, default: () => ({}) },
+    },
     allowedPairs: [String],
+    autoSignal: {
+      enabled: { type: Boolean, default: false },
+      intervalMinutes: { type: Number, default: 15 },
+      timeframe: { type: String, default: "H1" },
+      pairs: { type: [String], default: ["EURUSD"] },
+      maxSignalsPerDay: { type: Number, default: 5 },
+      lastRunAt: { type: Date, default: null },
+      lastSignalAt: { type: Date, default: null },
+      lastError: { type: String, default: null },
+      lastResult: { type: String, default: null },
+      lastStage: { type: String, default: null },
+      nextRunAt: { type: Date, default: null },
+      healthStatus: {
+        type: String,
+        enum: ["idle", "ok", "skipped", "error", "disabled", "no_account"],
+        default: "idle",
+      },
+      requireAssignedAccount: { type: Boolean, default: true },
+      minSignalGapMinutes: { type: Number, default: 30 },
+    },
     accountConfigId: { type: mongoose.Schema.Types.ObjectId, ref: "AccountConfig" },
     riskAdjustment: {
       enabled: { type: Boolean, default: false },

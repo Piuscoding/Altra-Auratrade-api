@@ -5,9 +5,18 @@ import { sendEmail } from "../utils/email.js"
 import { writeAudit } from "./auditService.js"
 
 export async function getOrCreatePrefs(userId) {
+  if (!userId) {
+    throw new Error("userId is required for notification preferences")
+  }
   let prefs = await NotificationPreference.findOne({ userId })
   if (!prefs) {
-    prefs = await NotificationPreference.create({ userId })
+    try {
+      prefs = await NotificationPreference.create({ userId })
+    } catch (err) {
+      // race: unique index — fetch again
+      prefs = await NotificationPreference.findOne({ userId })
+      if (!prefs) throw err
+    }
   }
   return prefs
 }

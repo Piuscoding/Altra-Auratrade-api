@@ -23,6 +23,18 @@ const signalSchema = new mongoose.Schema(
     newsChecks: { type: mongoose.Schema.Types.Mixed, default: {} },
     onlySignals: { type: Boolean, default: false },
     tradeId: { type: mongoose.Schema.Types.ObjectId, ref: "Trade", default: null },
+    chartMarkup: {
+      entry: { type: Number, default: null },
+      stopLoss: { type: Number, default: null },
+      takeProfit: { type: Number, default: null },
+      direction: { type: String, default: null },
+      pair: { type: String, default: null },
+      strategyName: { type: String, default: null },
+      plottedLevels: { type: mongoose.Schema.Types.Mixed, default: {} },
+      rules: { type: mongoose.Schema.Types.Mixed, default: {} },
+      rr: { type: Number, default: null },
+      source: { type: String, default: "signal" },
+    },
   },
   { timestamps: true }
 )

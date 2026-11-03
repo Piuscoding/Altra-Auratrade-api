@@ -15,6 +15,13 @@ import brokerRoutes from "./routes/brokers.js"
 import chartRoutes from "./routes/charts.js"
 import adminRoutes from "./routes/admin.js"
 import notificationRoutes from "./routes/notifications.js"
+import backtestRoutes from "./routes/backtest.js"
+import marketRoutes from "./routes/market.js"
+import learningRoutes from "./routes/learning.js"
+import propRoutes from "./routes/prop.js"
+import journalRoutes from "./routes/journal.js"
+import { isMetaApiConfigured } from "./services/metaApiClient.js"
+import { startAutoSignalWorker, getAutoSignalWorkerStatus } from "./workers/autoSignalWorker.js"
 
 dotenv.config()
 
@@ -44,10 +51,11 @@ app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "Altra-AuraTrade API",
-    version: "1.9.0",
-    phase: 9,
+    version: "2.0.0",
+    phase: "9+backtest+live",
     openRouterConfigured: Boolean(process.env.OPENROUTER_API_KEY),
-    metaApiConfigured: Boolean(process.env.METAAPI_TOKEN),
+    metaApiConfigured: isMetaApiConfigured(),
+    autoSignalWorker: getAutoSignalWorkerStatus(),
     telegramConfigured: Boolean(process.env.TELEGRAM_BOT_TOKEN),
   })
 })
@@ -61,6 +69,11 @@ app.use("/api/brokers", brokerRoutes)
 app.use("/api/charts", chartRoutes)
 app.use("/api/admin", adminRoutes)
 app.use("/api/notifications", notificationRoutes)
+app.use("/api/backtest", backtestRoutes)
+app.use("/api/market", marketRoutes)
+app.use("/api/learning", learningRoutes)
+app.use("/api/prop", propRoutes)
+app.use("/api/journal", journalRoutes)
 
 app.use((err, _req, res, _next) => {
   console.error(err.stack || err)
@@ -75,6 +88,10 @@ async function start() {
     await connectDB()
     app.listen(PORT, () => {
       console.log(`Altra-AuraTrade API running on http://localhost:${PORT}`)
+      console.log(`MetaApi live execution: ${isMetaApiConfigured() ? "ENABLED" : "disabled (set METAAPI_TOKEN)"}`)
+      startAutoSignalWorker().catch((e) =>
+        console.warn("[auto-signal] start failed:", e.message)
+      )
     })
   } catch (err) {
     console.error("Failed to start server:", err)
@@ -83,3 +100,5 @@ async function start() {
 }
 
 start()
+
+

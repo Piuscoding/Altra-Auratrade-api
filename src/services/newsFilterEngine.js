@@ -1,103 +1,88 @@
-/**
- * News filter engine — blocks signals around high-impact events.
- * Uses user-defined lists + built-in high-impact event names.
- * Cron-ready: checkNewsWindow can be called every 5 minutes.
- */
+import { getUpcomingHighImpact } from "./newsCalendarService.js"
 
-const BUILTIN_HIGH_IMPACT = [
-  "FOMC",
-  "CPI",
-  "PPI",
-  "NFP",
-  "NonFarmPayrolls",
-  "Non-Farm Payrolls",
-  "GDP",
-  "Unemployment Claims",
-  "ECB",
-  "BOE",
-  "RBA",
-  "BOJ",
-]
-
-/** In-memory demo calendar entries: { name, time: ISO, impact: high|medium } */
-const DEMO_CALENDAR = []
-
-export function seedDemoNewsEvent({ name, minutesFromNow = 30, impact = "high" }) {
-  const time = new Date(Date.now() + minutesFromNow * 60 * 1000)
-  DEMO_CALENDAR.push({ name, time, impact })
-  return { name, time, impact }
+const IMPACT_PIPS = {
+  FOMC: 80,
+  CPI: 60,
+  NFP: 70,
+  GDP: 40,
+  ECB: 50,
+  BOE: 45,
+  DEFAULT: 30,
 }
 
-export function clearDemoNewsEvents() {
-  DEMO_CALENDAR.length = 0
+export function estimateNewsImpactPips(pair, eventName = "") {
+  const key = Object.keys(IMPACT_PIPS).find((k) =>
+    String(eventName).toUpperCase().includes(k)
+  )
+  return IMPACT_PIPS[key] || IMPACT_PIPS.DEFAULT
 }
+
+/** Sync helper for charts — uses last fetched cache if any */
+let _cache = { at: 0, events: [] }
 
 export function getUpcomingEvents(withinMinutes = 120) {
+  // synchronous fallback for chart markers: use cache
   const now = Date.now()
-  const end = now + withinMinutes * 60 * 1000
-  return DEMO_CALENDAR.filter((e) => {
+  return (_cache.events || []).filter((e) => {
     const t = new Date(e.time).getTime()
-    return t >= now - 15 * 60 * 1000 && t <= end
+    return t >= now - 15 * 60 * 1000 && t <= now + withinMinutes * 60 * 1000
   })
 }
 
-/**
- * @param {object} opts
- * @param {boolean} opts.isNewsFilterEnabled
- * @param {string[]} opts.newsFilters
- * @param {string[]} opts.newsFilterCustom
- * @param {number} opts.blockWindowMinutes - minutes before/after event to block
- */
-export function evaluateNewsFilter({
-  isNewsFilterEnabled = true,
-  newsFilters = [],
-  newsFilterCustom = [],
-  blockWindowMinutes = 30,
-} = {}) {
+export async function refreshNewsCache() {
+  try {
+    const { events } = await getUpcomingHighImpact(24 * 60)
+    _cache = { at: Date.now(), events: events.map((e) => ({ name: e.name, time: e.time, impact: e.impact })) }
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function evaluateNewsFilterAsync({ isNewsFilterEnabled = true, newsFilters = [], pair } = {}) {
   if (!isNewsFilterEnabled) {
+    return { blocked: false, reason: null, note: "News filter disabled on account" }
+  }
+  await refreshNewsCache()
+  const upcoming = getUpcomingEvents(120)
+  const watch = (newsFilters || []).map((x) => String(x).toUpperCase())
+  const hit = upcoming.find((e) => {
+    const name = String(e.name).toUpperCase()
+    if (!watch.length) return true
+    return watch.some((w) => name.includes(w))
+  })
+  if (hit) {
     return {
-      blocked: false,
-      reason: null,
-      event: null,
-      note: "News filter disabled by user",
+      blocked: true,
+      reason: "news_window",
+      note: `High-impact window: ${hit.name} (~${estimateNewsImpactPips(pair, hit.name)} pips est.)`,
+      event: hit,
     }
   }
+  return { blocked: false, reason: null, note: "Clear of high-impact windows" }
+}
 
-  const watched = [
-    ...BUILTIN_HIGH_IMPACT,
-    ...(newsFilters || []),
-    ...(newsFilterCustom || []),
-  ].map((s) => String(s).toLowerCase())
-
-  const now = Date.now()
-  const windowMs = blockWindowMinutes * 60 * 1000
-
-  for (const ev of DEMO_CALENDAR) {
-    if (ev.impact !== "high") continue
-    const t = new Date(ev.time).getTime()
-    if (Math.abs(t - now) > windowMs) continue
-    const nameLower = String(ev.name).toLowerCase()
-    const match =
-      watched.some((w) => nameLower.includes(w) || w.includes(nameLower)) ||
-      BUILTIN_HIGH_IMPACT.some((b) => nameLower.includes(b.toLowerCase()))
-    if (match) {
-      return {
-        blocked: true,
-        reason: `skipped_due_to_news`,
-        event: ev.name,
-        eventTime: ev.time,
-        note: `High-impact event ${ev.name} within ±${blockWindowMinutes}m window`,
-      }
+export function evaluateNewsFilter(opts) {
+  // sync version used by trading engine — uses cache
+  if (!opts?.isNewsFilterEnabled) {
+    return { blocked: false, reason: null, note: "News filter disabled on account" }
+  }
+  const upcoming = getUpcomingEvents(120)
+  const watch = (opts.newsFilters || []).map((x) => String(x).toUpperCase())
+  const hit = upcoming.find((e) => {
+    const name = String(e.name).toUpperCase()
+    if (!watch.length) return true
+    return watch.some((w) => name.includes(w))
+  })
+  if (hit) {
+    return {
+      blocked: true,
+      reason: "news_window",
+      note: `High-impact window: ${hit.name}`,
+      event: hit,
     }
   }
-
-  return { blocked: false, reason: null, event: null, note: "Clear" }
+  return { blocked: false, reason: null, note: "Clear of high-impact windows (cache)" }
 }
 
-export function estimateNewsImpactPips(pair, eventName) {
-  const base = 20
-  const volatile = ["XAUUSD", "GBPJPY", "EURUSD", "GBPUSD"]
-  const mult = volatile.some((p) => pair?.toUpperCase().includes(p.slice(0, 3))) ? 1.5 : 1
-  if (/FOMC|NFP|CPI/i.test(eventName || "")) return Math.round(base * mult * 1.4)
-  return Math.round(base * mult)
-}
+// seed cache on module load (non-blocking)
+refreshNewsCache().catch(() => {})

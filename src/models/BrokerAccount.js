@@ -51,6 +51,8 @@ const brokerAccountSchema = new mongoose.Schema(
     },
     newsFilterCustom: { type: [String], default: [] },
     notes: { type: String, default: "" },
+    lastError: { type: String, default: null },
+    lastSyncAt: { type: Date, default: null },
   },
   { timestamps: true }
 )

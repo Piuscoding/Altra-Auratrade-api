@@ -173,10 +173,17 @@ async function resolveModelForUser(userId) {
     }
   }
 
-  const freeDefault = settings.freeModels?.[0]
+  // Global admin defaults
+  if (settings.modelSwitching?.paidModelsEnabled && settings.defaultPaidModelId) {
+    const paid = settings.paidModels?.find((m) => m.id === settings.defaultPaidModelId)
+    // Only use paid global default if user explicitly has paid preference path — otherwise free
+  }
+
+  const freeId = settings.defaultFreeModelId || settings.freeModels?.[0]?.id || DEFAULT_FREE_MODEL
+  const freeFound = settings.freeModels?.find((m) => m.id === freeId) || settings.freeModels?.[0]
   return {
-    modelId: freeDefault?.id || DEFAULT_FREE_MODEL,
-    modelName: freeDefault?.name || "Qwen3-VL 7B",
+    modelId: freeFound?.id || freeId || DEFAULT_FREE_MODEL,
+    modelName: freeFound?.name || "Qwen3-VL 7B",
   }
 }
 

@@ -159,4 +159,42 @@ router.post("/logout", protect, (req, res) => {
   res.json({ message: "Logged out" })
 })
 
+
+router.get("/preferences", protect, loadUser, async (req, res) => {
+  try {
+    const user = await (await import("../models/User.js")).default.findById(req.user._id)
+    res.json({ preferences: user.preferences || {} })
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load preferences" })
+  }
+})
+
+router.patch("/preferences", protect, loadUser, async (req, res) => {
+  try {
+    const User = (await import("../models/User.js")).default
+    const user = await User.findById(req.user._id)
+    if (!user.preferences) user.preferences = {}
+    if (req.body.aiChartAssist && typeof req.body.aiChartAssist === "object") {
+      user.preferences.aiChartAssist = {
+        ...(user.preferences.aiChartAssist?.toObject?.() || user.preferences.aiChartAssist || {}),
+        ...req.body.aiChartAssist,
+      }
+      user.markModified("preferences")
+    }
+    if (req.body.preSignalValidation && typeof req.body.preSignalValidation === "object") {
+      user.preferences.preSignalValidation = {
+        ...(user.preferences.preSignalValidation?.toObject?.() ||
+          user.preferences.preSignalValidation ||
+          {}),
+        ...req.body.preSignalValidation,
+      }
+      user.markModified("preferences")
+    }
+    await user.save()
+    res.json({ preferences: user.preferences, message: "Preferences saved" })
+  } catch (err) {
+    res.status(500).json({ message: err.message || "Failed to save preferences" })
+  }
+})
+
 export default router

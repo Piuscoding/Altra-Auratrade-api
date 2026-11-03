@@ -301,4 +301,119 @@ router.get("/public-feature-toggles", async (_req, res) => {
   }
 })
 
+
+router.patch("/settings/default-models", async (req, res) => {
+  try {
+    const settings = await getSettings()
+    const { defaultFreeModelId, defaultPaidModelId } = req.body || {}
+    if (defaultFreeModelId) {
+      const ok = settings.freeModels?.some((m) => m.id === defaultFreeModelId)
+      if (!ok) return res.status(400).json({ message: "defaultFreeModelId must be in free models list" })
+      settings.defaultFreeModelId = defaultFreeModelId
+    }
+    if (defaultPaidModelId) {
+      const ok = settings.paidModels?.some((m) => m.id === defaultPaidModelId)
+      if (!ok) return res.status(400).json({ message: "defaultPaidModelId must be in paid models list" })
+      settings.defaultPaidModelId = defaultPaidModelId
+    }
+    await settings.save()
+    res.json({
+      defaultFreeModelId: settings.defaultFreeModelId,
+      defaultPaidModelId: settings.defaultPaidModelId,
+      message: "Default models updated",
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ message: "Failed to update default models" })
+  }
+})
+
+
+router.patch("/settings/data-providers", async (req, res) => {
+  try {
+    const settings = await getSettings()
+    const { marketDataProvider, newsDataProvider } = req.body || {}
+    if (marketDataProvider && ["twelvedata", "finnhub"].includes(marketDataProvider)) {
+      settings.marketDataProvider = marketDataProvider
+    }
+    if (newsDataProvider && ["financecalendar", "jbnews", "finnhub", "fmp"].includes(newsDataProvider)) {
+      settings.newsDataProvider = newsDataProvider
+    }
+    await settings.save()
+    res.json({
+      marketDataProvider: settings.marketDataProvider,
+      newsDataProvider: settings.newsDataProvider,
+      message: "Data providers updated",
+    })
+  } catch (err) {
+    res.status(500).json({ message: "Failed to update data providers" })
+  }
+})
+
+
+router.patch("/settings/pre-signal-validation", async (req, res) => {
+  try {
+    const settings = await getSettings()
+    const body = req.body || {}
+    if (typeof body.enabled === "boolean") {
+      settings.globalFeatureToggles = {
+        ...(settings.globalFeatureToggles?.toObject?.() || settings.globalFeatureToggles || {}),
+        preSignalValidation: body.enabled,
+      }
+    }
+    const cur = settings.preSignalValidation?.toObject?.() || settings.preSignalValidation || {}
+    const next = { ...cur }
+    for (const key of [
+      "mode",
+      "runQuickBacktest",
+      "candleCount",
+      "timeframe",
+      "usePromotionGates",
+      "minTrades",
+      "minWinRate",
+      "minExpectancy",
+      "maxDrawdownPercent",
+    ]) {
+      if (body[key] !== undefined) next[key] = body[key]
+    }
+    settings.preSignalValidation = next
+    await settings.save()
+    res.json({
+      enabled: settings.globalFeatureToggles?.preSignalValidation === true,
+      preSignalValidation: settings.preSignalValidation,
+      message: "Pre-signal validation settings saved",
+    })
+  } catch (err) {
+    res.status(500).json({ message: err.message || "Failed to save" })
+  }
+})
+
+
+router.patch("/settings/ai-chart-assist", async (req, res) => {
+  try {
+    const settings = await getSettings()
+    const body = req.body || {}
+    if (typeof body.enabled === "boolean") {
+      settings.globalFeatureToggles = {
+        ...(settings.globalFeatureToggles?.toObject?.() || settings.globalFeatureToggles || {}),
+        aiChartAssist: body.enabled,
+      }
+    }
+    const cur = settings.aiChartAssist?.toObject?.() || settings.aiChartAssist || {}
+    const next = { ...cur }
+    for (const key of ["cooldownSeconds", "cacheTtlSeconds", "maxPerHour", "candleCount"]) {
+      if (body[key] !== undefined) next[key] = body[key]
+    }
+    settings.aiChartAssist = next
+    await settings.save()
+    res.json({
+      enabled: settings.globalFeatureToggles?.aiChartAssist !== false,
+      aiChartAssist: settings.aiChartAssist,
+      message: "AI chart assist settings saved",
+    })
+  } catch (err) {
+    res.status(500).json({ message: err.message || "Failed to save" })
+  }
+})
+
 export default router

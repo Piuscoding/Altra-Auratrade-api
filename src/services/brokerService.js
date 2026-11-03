@@ -1,42 +1,13 @@
 import crypto from "crypto"
+import { encryptSecret, decryptSecret } from "../utils/cryptoSecrets.js"
 import BrokerAccount from "../models/BrokerAccount.js"
 import MetaApiConnection from "../models/MetaApiConnection.js"
 import Strategy from "../models/Strategy.js"
 import Trade from "../models/Trade.js"
+import { getAccountInformation, isMetaApiConfigured } from "./metaApiClient.js"
+import { syncProviderBalance } from "./brokerExecution.js"
 
 const METAAPI_BASE = "https://mt-provisioning-api-v1.agiliumtrade.ai"
-
-function encryptSecret(plain) {
-  if (!plain) return null
-  const key = crypto
-    .createHash("sha256")
-    .update(process.env.JWT_SECRET || "dev-secret-for-local-only")
-    .digest()
-  const iv = crypto.randomBytes(12)
-  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv)
-  const enc = Buffer.concat([cipher.update(String(plain), "utf8"), cipher.final()])
-  const tag = cipher.getAuthTag()
-  return Buffer.concat([iv, tag, enc]).toString("base64")
-}
-
-function decryptSecret(blob) {
-  if (!blob) return null
-  try {
-    const buf = Buffer.from(blob, "base64")
-    const iv = buf.subarray(0, 12)
-    const tag = buf.subarray(12, 28)
-    const data = buf.subarray(28)
-    const key = crypto
-      .createHash("sha256")
-      .update(process.env.JWT_SECRET || "dev-secret-for-local-only")
-      .digest()
-    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv)
-    decipher.setAuthTag(tag)
-    return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8")
-  } catch {
-    return null
-  }
-}
 
 export function sanitizeBroker(account) {
   const o = account.toObject ? account.toObject() : { ...account }
@@ -448,9 +419,55 @@ export async function syncBalance(userId, accountId) {
   const account = await BrokerAccount.findOne({ _id: accountId, userId })
   if (!account) throw Object.assign(new Error("Broker account not found"), { status: 404 })
 
-  if (account.provider === "metaapi" && process.env.METAAPI_TOKEN && account.metaApiConnectionId) {
+  // Unified live path (MetaApi / OANDA / IBKR + IBKR session recovery)
+  try {
+    const { syncAccountLiveState, syncOpenTradesForAccount } = await import("./orderSyncService.js")
+    const live = await syncAccountLiveState(userId, accountId)
+    if (live.ok) {
+      await syncOpenTradesForAccount(userId, accountId)
+      const fresh = await BrokerAccount.findById(accountId)
+      return {
+        account: sanitizeBroker(fresh),
+        message: `Balance synced from ${live.provider?.toUpperCase?.() || "broker"}`,
+        live: true,
+        equity: live.equity,
+        balance: live.balance,
+      }
+    }
+    // fall through with message for offline providers
+    if (account.provider === "oanda" || account.provider === "ibkr" || account.provider === "metaapi") {
+      return {
+        account: sanitizeBroker(account),
+        message: live.error || "Live sync unavailable",
+        live: false,
+      }
+    }
+  } catch (err) {
+    console.warn("[syncBalance] unified path:", err.message)
+  }
+
+  if (account.provider === "metaapi" && isMetaApiConfigured() && account.metaApiConnectionId) {
     const conn = await MetaApiConnection.findById(account.metaApiConnectionId)
-    // Live MetaApi account information API would go here with account id
+    if (conn?.metaApiAccountId && !String(conn.metaApiAccountId).startsWith("local-")) {
+      const info = await getAccountInformation(conn.metaApiAccountId)
+      if (info.ok && info.data) {
+        if (info.data.balance != null) account.balance = Number(info.data.balance)
+        if (info.data.equity != null) account.equity = Number(info.data.equity)
+        if (info.data.currency) account.currency = info.data.currency
+        account.lastSync = new Date()
+        await account.save()
+        return {
+          account: sanitizeBroker(account),
+          message: "Balance synced from MetaApi",
+          live: true,
+        }
+      }
+      return {
+        account: sanitizeBroker(account),
+        message: info.error || "MetaApi account info unavailable — is the account deployed?",
+        live: false,
+      }
+    }
     account.lastSync = new Date()
     await account.save()
     return {
@@ -461,6 +478,27 @@ export async function syncBalance(userId, accountId) {
     }
   }
 
+
+  if (account.provider === "oanda" || account.provider === "ibkr") {
+    const info = await syncProviderBalance(account)
+    if (info.ok) {
+      if (info.balance != null) account.balance = Number(info.balance)
+      if (info.equity != null) account.equity = Number(info.equity)
+      if (info.currency) account.currency = info.currency
+      account.lastSync = new Date()
+      await account.save()
+      return {
+        account: sanitizeBroker(account),
+        message: `Balance synced from ${account.provider.toUpperCase()}`,
+        live: true,
+      }
+    }
+    return {
+      account: sanitizeBroker(account),
+      message: info.error || "Sync failed",
+      live: false,
+    }
+  }
   // Offline: recompute equity from closed trades delta optional
   const closed = await Trade.find({
     userId,
